@@ -1,0 +1,24 @@
+# Never commit secrets or local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+# JS and builds (future milestones)
+node_modules/
+.next/
+dist/
+build/
+# Uploaded customer files must NEVER enter the repository
+uploads/
+private_documents/
+*.db
+*.sqlite3
+.DS_Store

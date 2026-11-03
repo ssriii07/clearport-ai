@@ -1,0 +1,140 @@
+[
+  {
+    "shipment_id": "SHP-24811",
+    "importer_name": "Example Importer India Pvt Ltd",
+    "sample_only": true,
+    "documents": {
+      "invoice": {
+        "status": "extracted",
+        "extracted": {
+          "supplier_name": "Company B Exports Ltd. (China)",
+          "buyer_name": "Example Importer India Pvt Ltd",
+          "invoice_number": "INV-24811-01",
+          "invoice_date": "2026-10-25",
+          "currency": "USD",
+          "incoterm": "FOB Shanghai",
+          "line_items": [
+            {
+              "description": "LED panel light 40W",
+              "hsn_code": "9405 11 00",
+              "quantity": 2400,
+              "unit_price": "6.80",
+              "line_total": "16320.00"
+            }
+          ],
+          "invoice_total": "16320.00",
+          "packages": 120,
+          "gross_weight_kg": 3120
+        },
+        "confidence": {
+          "invoice_number": 0.98,
+          "invoice_total": 0.97,
+          "gross_weight_kg": 0.96
+        }
+      },
+      "packing_list": {
+        "status": "extracted",
+        "extracted": {
+          "supplier_name": "Company B Exports Ltd. (China)",
+          "invoice_number": "INV-24811-01",
+          "packages": 120,
+          "gross_weight_kg": 3165,
+          "line_items": [
+            {
+              "description": "LED panel light 40W",
+              "quantity": 2400
+            }
+          ]
+        },
+        "confidence": {
+          "gross_weight_kg": 0.94,
+          "packages": 0.98
+        }
+      },
+      "bill_of_lading": {
+        "status": "extracted",
+        "extracted": {
+          "bill_of_lading_number": "BL-SEA-24811",
+          "container_numbers": [
+            "MSCU1234567"
+          ],
+          "packages": 120,
+          "gross_weight_kg": 3120
+        },
+        "confidence": {
+          "bill_of_lading_number": 0.98,
+          "container_numbers": 0.74
+        }
+      }
+    }
+  },
+  {
+    "shipment_id": "SHP-24812",
+    "importer_name": "Example Importer India Pvt Ltd",
+    "sample_only": true,
+    "documents": {
+      "invoice": {
+        "status": "extracted",
+        "extracted": {
+          "supplier_name": "Company C AB (Sweden)",
+          "buyer_name": "Example Importer India Pvt Ltd",
+          "invoice_number": "INV-24812-01",
+          "invoice_date": "2026-10-26",
+          "currency": "EUR",
+          "incoterm": "FOB Gothenburg",
+          "line_items": [
+            {
+              "description": "Steel ball valve DN50",
+              "hsn_code": "8481 80 30",
+              "quantity": 180,
+              "unit_price": "42.50",
+              "line_total": "7650.00"
+            }
+          ],
+          "invoice_total": "7650.00",
+          "packages": 18,
+          "gross_weight_kg": 1460
+        },
+        "confidence": {
+          "invoice_number": 0.99,
+          "invoice_total": 0.96,
+          "gross_weight_kg": 0.95
+        }
+      },
+      "packing_list": {
+        "status": "extracted",
+        "extracted": {
+          "supplier_name": "Company C AB (Sweden)",
+          "invoice_number": "INV-24812-01",
+          "packages": 18,
+          "gross_weight_kg": 1460,
+          "line_items": [
+            {
+              "description": "Steel ball valve DN50",
+              "quantity": 180
+            }
+          ]
+        },
+        "confidence": {
+          "gross_weight_kg": 0.95,
+          "packages": 0.99
+        }
+      },
+      "bill_of_lading": {
+        "status": "extracted",
+        "extracted": {
+          "bill_of_lading_number": "BL-SEA-24812",
+          "container_numbers": [
+            "TCLU7654321"
+          ],
+          "packages": 18,
+          "gross_weight_kg": 1460
+        },
+        "confidence": {
+          "bill_of_lading_number": 0.98,
+          "container_numbers": 0.91
+        }
+      }
+    }
+  }
+]
