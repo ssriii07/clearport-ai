@@ -1,19 +1,31 @@
-# Planned architecture — not yet implemented (Milestone 01)
+# ClearPort AI architecture — implementation status
 
-Browser UI (Next.js + TypeScript) -> authenticated FastAPI -> PostgreSQL.
+## Milestone 02 actually implemented
 
-Private storage holds PDFs/images; API streams/uploads with validation. Backend calls Gemini server-side with synthetic test documents during development. AI creates only a DRAFT with field confidence and missing/uncertain markers. Human executive edits/confirms each field; backend executes deterministic cross-document checks. Manager approves a shipment revision; export endpoint rechecks validation and approval transactionally before streaming CSV. Audits record access, edits, approvals and exports.
+- FastAPI API (`backend/clearport/api.py`), testable with built-in Swagger UI at `/docs`.
+- SQLAlchemy actual schema (`backend/clearport/database.py`) using local SQLite database by default. `DATABASE_URL` can configure PostgreSQL; automated migration tooling remains TODO. The existing `backend/sql/schema.sql` is **an older design blueprint, not used by the app**.
+- Auth (`backend/clearport/auth.py`): scrypt password hashes, short-lived signed JWT bearer tokens, active user lookups. Manager-only approval is enforced on the server.
+- Original deterministic cross-check engine (`backend/clearport/cross_checks.py`), extended to ignore low-confidence alerts only once a human confirmation is recorded separately, without mutating raw AI scores.
+- Revision-based approvals: every edit and confirmation increments shipment revision, invalidating an earlier approval. Export always recomputes checks and validates current manager approval.
+- Edit, confirmation, approval and export audit records in the database.
+- Synthetic sample records and local demo users loaded by `python -m clearport.seed_db`.
 
-### Proposed 7-step reviewer demo
+## Next milestones
 
-1. Sign in as executive and see seeded shipments.
-2. Open SHP-24811 and upload invoice, packing list, bill of lading.
-3. Observe real extraction and confidence flags, side-by-side preview.
-4. See automatic 3120 vs 3165 kg mismatch and blocked export.
-5. Manually correct after checking source document, record edit reason.
-6. Sign in as manager, review current revision and approve.
-7. Export CSV; show audit history and one unreadable/failed AI case.
+Browser UI (Next.js + TypeScript) → authenticated FastAPI → PostgreSQL for deployed demo.
 
-### Threats to handle in implementation
+Private storage holds PDFs/images. Server accepts validated uploads and calls Gemini only from backend with model output treated as draft. Document can be unreadable and manually entered. Executive reviews the document side by side with editable fields and confidence flags. Manager checks and approves current revision. Final CSV export requires all checks to be clear.
 
-Broken object-level authorization, arbitrary file uploads, prompt injection in documents, bad AI output, missing fields, unsafe access to raw documents, race conditions between approval and export, leaked API keys, stale approvals, insufficient logging, exposing confidential client details, and ambiguous layout requirements.
+## Target reviewer demo
+
+1. Sign in as executive; open seeded shipment list.
+2. Upload invoice, packing list and bill of lading; Gemini reads fictional documents.
+3. Side-by-side preview shows source and editable draft, including low-confidence fields.
+4. SHP-24811 exhibits 3120-vs-3165 kg discrepancy and blocks export.
+5. Fix source-verified field, explicitly confirm uncertain container reference.
+6. Sign in as manager, approve current revision.
+7. Export CSV and show audit history, explain one unreadable-scan fallback.
+
+## Known security/engineering follow-ups
+
+Avoid real importer data in free-tier AI tests; use paid provider with verified no-training / India-region contract for production. Audit all document reads; private object storage; limit sizes/types; inspect PDF content; handle prompt injection, provider errors, stale approvals, malformed values, race conditions and CSV formula injection. Database row locks and migration tooling are needed before a real multi-user production launch.

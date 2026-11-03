@@ -1,0 +1,157 @@
+"""Milestone 02 API integration tests, using an isolated temporary SQL database."""
+import csv
+import io
+import os
+from pathlib import Path
+import tempfile
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
+
+from clearport.api import app
+from clearport.database import Base, get_db, make_engine
+from clearport.seed_db import seed
+
+@pytest.fixture()
+def env():
+    with tempfile.TemporaryDirectory() as temp:
+        os.environ['CLEARPORT_JWT_SECRET'] = 'test-only-random-signing-secret-aaaaaaaaaaaaaaaaaaaa'
+        engine = make_engine('sqlite:///' + str(Path(temp) / 'test.sqlite3'))
+        Base.metadata.create_all(engine)
+        local_session = sessionmaker(bind=engine, expire_on_commit=False)
+        with local_session() as db:
+            seed(db)
+        def overridden():
+            with local_session() as db:
+                yield db
+        app.dependency_overrides[get_db] = overridden
+        with TestClient(app) as client:
+            def login(email, password):
+                response = client.post('/auth/login', json={'email': email, 'password': password})
+                assert response.status_code == 200, response.text
+                return {'Authorization': 'Bearer ' + response.json()['access_token']}
+            executive = login('executive@clearport.demo', 'DemoExec#2026')
+            manager = login('manager@clearport.demo', 'DemoManager#2026')
+            yield client, executive, manager
+        app.dependency_overrides.clear()
+        engine.dispose()
+        os.environ.pop('CLEARPORT_JWT_SECRET', None)
+
+def test_health_unprotected(env):
+    client, _, _ = env
+    r = client.get('/health')
+    assert r.status_code == 200 and not r.json()['ai_ingestion_enabled']
+
+def test_auth_required_for_shipments(env):
+    client, _, _ = env
+    assert client.get('/shipments').status_code == 401
+    assert client.post('/shipments/SHP-24811/export').status_code == 401
+
+def test_wrong_login_rejected(env):
+    client, _, _ = env
+    assert client.post('/auth/login', json={'email': 'manager@clearport.demo', 'password': 'wrong'}).status_code == 401
+
+def test_seed_and_cross_checks_visible(env):
+    client, exe, _ = env
+    all_shipments = client.get('/shipments', headers=exe).json()
+    assert len(all_shipments) == 2
+    detail = client.get('/shipments/SHP-24811', headers=exe).json()
+    codes = {i['code'] for i in detail['validation']['issues']}
+    assert {'LOW_CONFIDENCE','GROSS_WEIGHT_MISMATCH'} <= codes
+    assert detail['export_allowed'] is False
+    assert client.get('/shipments/SHP-24812', headers=exe).json()['checks_clear'] is True
+
+def test_cannot_approve_wrong_or_unreviewed(env):
+    client, exe, manager = env
+    assert client.post('/shipments/SHP-24811/approve', headers=exe, json={'expected_revision':1}).status_code == 403
+    assert client.post('/shipments/SHP-24811/approve', headers=manager, json={'expected_revision':1}).status_code == 409
+    assert client.post('/shipments/SHP-24812/export', headers=exe).status_code == 409
+
+def test_full_workflow_low_confidence_fix_approve_export(env):
+    client, exe, manager = env
+    sid = 'SHP-24811'
+    r = client.post(f'/shipments/{sid}/documents/bill_of_lading/confirm', headers=exe,
+        json={'field_path':'container_numbers','expected_revision':1})
+    assert r.status_code == 200, r.text
+    assert r.json()['revision'] == 2
+    assert 'LOW_CONFIDENCE' not in {i['code'] for i in r.json()['validation']['issues']}
+    r = client.patch(f'/shipments/{sid}/documents/packing_list/field', headers=exe, json={
+        'field_path':'gross_weight_kg','value':3120,
+        'reason':'Verified original packing list', 'expected_revision':2})
+    assert r.status_code == 200, r.text
+    assert r.json()['revision'] == 3
+    assert r.json()['checks_clear'] is True
+    assert r.json()['export_allowed'] is False
+    r = client.post(f'/shipments/{sid}/approve', headers=manager, json={'expected_revision':3, 'comment':'Reviewed documents and corrections'})
+    assert r.status_code == 200, r.text
+    assert r.json()['export_allowed'] is True
+    r = client.post(f'/shipments/{sid}/export', headers=exe)
+    assert r.status_code == 200, r.text
+    assert 'text/csv' in r.headers['content-type']
+    rows = list(csv.DictReader(io.StringIO(r.text)))
+    assert len(rows) == 1
+    assert rows[0]['invoice_total'] == '16320.00'
+    assert rows[0]['gross_weight_kg'] == '3120'
+    hist = client.get(f'/shipments/{sid}/history', headers=manager).json()
+    assert len(hist['edits_and_confirmations']) == 2
+    assert len(hist['approvals']) == 1
+    assert len(hist['exports']) == 1
+
+def test_approval_invalidated_by_any_edit(env):
+    client, exe, manager = env
+    sid = 'SHP-24812'
+    assert client.post(f'/shipments/{sid}/approve', headers=manager, json={'expected_revision':1}).status_code == 200
+    edit = client.patch(f'/shipments/{sid}/documents/invoice/field', headers=exe, json={
+        'field_path':'invoice_number','value':'INV-24812-CHANGED',
+        'reason':'Corrected after checking document', 'expected_revision':1})
+    assert edit.status_code == 200
+    assert edit.json()['revision'] == 2
+    assert edit.json()['approved_current_revision'] is False
+    assert client.post(f'/shipments/{sid}/export', headers=exe).status_code == 409
+    assert client.post(f'/shipments/{sid}/approve', headers=manager, json={'expected_revision':1}).status_code == 409
+
+def test_stale_revision_conflict(env):
+    client, exe, _ = env
+    sid = 'SHP-24811'
+    payload = {'field_path':'gross_weight_kg','value':3120,'reason':'Checked against original document','expected_revision':1}
+    assert client.patch(f'/shipments/{sid}/documents/packing_list/field', headers=exe, json=payload).status_code == 200
+    payload['value'] = 3121
+    assert client.patch(f'/shipments/{sid}/documents/packing_list/field', headers=exe, json=payload).status_code == 409
+
+def test_invalid_paths_and_fields_rejected(env):
+    client, exe, _ = env
+    sid = 'SHP-24811'
+    url = f'/shipments/{sid}/documents/packing_list/field'
+    base = {'field_path':'secret_admin','value':'oops','reason':'checked original source', 'expected_revision':1}
+    assert client.patch(url, headers=exe, json=base).status_code == 422
+    base['field_path'] = 'gross_weight_kg'
+    base['value'] = True
+    assert client.patch(url, headers=exe, json=base).status_code == 422
+    base['value'] = 0
+    base['reason'] = 'hi'
+    assert client.patch(url, headers=exe, json=base).status_code == 422
+
+def test_missing_field_cannot_be_confirmed(env):
+    client, exe, _ = env
+    r = client.post('/shipments/SHP-24811/documents/invoice/confirm', headers=exe,
+                    json={'field_path':'nonexistent','expected_revision':1})
+    assert r.status_code == 422
+
+def test_no_manager_approval_after_unsafe_edit(env):
+    client, exe, manager = env
+    r = client.patch('/shipments/SHP-24812/documents/invoice/field', headers=exe, json={
+        'field_path':'invoice_total','value':'99999.00','reason':'Intentionally changed to test controls','expected_revision':1})
+    assert r.status_code == 200
+    assert not r.json()['checks_clear']
+    assert client.post('/shipments/SHP-24812/approve', headers=manager, json={'expected_revision':2}).status_code == 409
+
+def test_csv_formula_injection_escaped():
+    from clearport.api import csv_safe
+    assert csv_safe('=SUM(A1:A2)') == "'=SUM(A1:A2)"
+    assert csv_safe('+cmd') == "'+cmd"
+    assert csv_safe('safe') == 'safe'
+
+def test_unknown_shipment_rejected(env):
+    client, exe, _ = env
+    assert client.get('/shipments/NOT-REAL', headers=exe).status_code == 404

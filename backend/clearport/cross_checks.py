@@ -98,9 +98,15 @@ def validate_shipment(shipment: dict[str, Any], *, confidence_threshold: str = "
         elif status != "extracted":
             issues.append(Issue("DOCUMENT_NOT_READY", f"{kind} is not ready for review (status: {status}).", (kind,)))
         confidence = raw.get("confidence", {})
+        confirmed = raw.get("confirmed_fields", [])
+        if not isinstance(confirmed, list):
+            confirmed = []
         if not isinstance(confidence, dict):
             confidence = {}
         for path, score in confidence.items():
+            if path in confirmed:
+                # Human confirmation is tracked separately; never fabricate a higher model score.
+                continue
             number = _decimal(score)
             if number is None or not Decimal("0") <= number <= Decimal("1"):
                 issues.append(Issue("INVALID_CONFIDENCE", f"Unusable AI confidence on {kind}.{path}.",

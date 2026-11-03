@@ -14,3 +14,7 @@ Do not present these as client-provided requirements. Add every unsupported choi
 - **A-010:** Gemini 2.5 Flash is chosen based on a successful Python+PDF test using synthetic files. The free API tier may not satisfy the client's production no-training requirement; production requires a confirmed compliant, suitably located data-processing plan.
 - **A-011:** During local development, source files live in private local upload storage; a production deployment needs private object storage with signed access and India-region infrastructure.
 - **A-012:** Frontend is desktop-first since the brief says desktop use. Minimalist visual palette and side-by-side review are mandatory design priorities.
+- **A-013:** Milestone 02 uses SQLite for an easy local persistent demonstration; SQLAlchemy models allow a later PostgreSQL configuration. No claims of production-ready migration or concurrent transactions are made.
+- **A-014:** Demo executive and manager accounts are fictional with documented example passwords; production requires secure credential provisioning, rate limits and stronger account lifecycle controls.
+- **A-015:** Human confirmation suppresses a *review alert* for that field while retaining the original model confidence and writing an audit record. Field edits require a reason and invalidate a prior manager approval.
+- **A-016:** CSV uses assumed columns because no filing-software-specific import template was provided; spreadsheet formula escaping is applied to untrusted text fields.

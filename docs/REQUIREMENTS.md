@@ -9,10 +9,10 @@
 - [ ] REAL vision-model extraction (parties, invoice number/date, currency, Incoterm, line items with HSN, packages, weights, container references).
 - [ ] Field-level confidence/uncertainty and source document link, editable review next to document.
 - [x] Deterministic invoice arithmetic and package/weight cross-check logic (milestone 01).
-- [ ] Fix or verify uncertain fields, resolve flagged inconsistencies and preserve edit history.
-- [ ] Block export until all checks are cleared; require manager approval for current revision.
-- [ ] CSV export in assumed filing-software import layout (layout not supplied).
-- [ ] Authenticated executive and manager roles with proper authorization.
+- [x] API: verify uncertain fields, edit mismatches, retain audit history (UI remains pending).
+- [x] API: block export until checks clear and manager approves current revision.
+- [x] API: CSV export in assumed filing-software import layout (layout not supplied).
+- [x] Authenticated executive and manager roles with server-side authorization (milestone 02 API).
 - [ ] Approximately 6–8 purposeful, desktop-first screens with excellent UX.
 
 ## More of MUST HAVE (optional depth once core is stable)
@@ -25,8 +25,8 @@
 - [ ] No fake AI, dead buttons, or demo-only frontend without backend.
 - [ ] Sensible retries, unreadable document/manual-entry case, low-confidence highlighting.
 - [ ] Well-designed minimal, high-readability UI with loading, empty and error states.
-- [ ] Realistic fictional seed data including SHP-24811 (gross weight 3120 vs 3165) and SHP-24812.
-- [x] Standalone unit tests of critical cross-check logic; add API/auth/export integration tests.
+- [x] Realistic fictional seed data including SHP-24811 (gross weight 3120 vs 3165) and SHP-24812.
+- [x] Standalone cross-check and API/auth/export integration tests (31 passing).
 - [ ] Validated inputs, safe file size/type limits, private file storage, hashed passwords, server-side role checks.
 - [ ] Confidential prices / personal importer contacts: India-hosted production systems, role-based access and model provider that does not train on client data.
 - [ ] Robustness against skewed and bilingual scans; no accuracy claim based only on one clean test PDF.
