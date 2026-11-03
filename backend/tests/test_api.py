@@ -41,7 +41,7 @@ def env():
 def test_health_unprotected(env):
     client, _, _ = env
     r = client.get('/health')
-    assert r.status_code == 200 and not r.json()['ai_ingestion_enabled']
+    assert r.status_code == 200 and r.json()['ai_ingestion_enabled']
 
 def test_auth_required_for_shipments(env):
     client, _, _ = env
@@ -155,3 +155,84 @@ def test_csv_formula_injection_escaped():
 def test_unknown_shipment_rejected(env):
     client, exe, _ = env
     assert client.get('/shipments/NOT-REAL', headers=exe).status_code == 404
+
+
+def test_upload_requires_auth_and_valid_pdf(env, monkeypatch, tmp_path):
+    from clearport import api
+    from clearport.ai_extract import normalize_ai_response
+    client, exe, _ = env
+    monkeypatch.setenv('UPLOADS_DIR', str(tmp_path))
+    hit = []
+    def fake_extract(kind, data, mime):
+        hit.append((kind, mime))
+        return normalize_ai_response('invoice', {'unreadable': False, 'extracted': {
+            'supplier_name': 'Company C', 'buyer_name': 'Example Importer India Pvt Ltd',
+            'invoice_number':'INV-24812', 'invoice_date':'2026-10-25',
+            'currency':'EUR', 'incoterm':'FOB Gothenburg', 'invoice_total': 7650,
+            'packages':18, 'gross_weight_kg':1460,
+            'line_items':[{'description':'Steel ball valve DN50','hsn_code':'8481 80 30',
+                           'quantity':180,'unit_price':42.5,'line_total':7650}]},
+            'confidence': {} })
+    monkeypatch.setattr(api, 'extract_document', fake_extract)
+    route = '/shipments/SHP-24812/documents/invoice/upload?expected_revision=1'
+    pdf = {'file': ('invoice.pdf', b'%PDF-1.4\n1 0 obj\nendobj\n%%EOF', 'application/pdf')}
+    assert client.post(route, files=pdf).status_code == 401
+    assert client.post(route, files={'file': ('invoice.pdf', b'not a pdf', 'application/pdf')}, headers=exe).status_code == 415
+    assert client.post(route, files={'file': ('a.pdf', b'%PDF-'+b'a'*(6*1024*1024+1), 'application/pdf')},headers=exe).status_code == 413
+    r = client.post(route, files=pdf, headers=exe)
+    assert r.status_code == 200, r.text
+    assert r.json()['revision'] == 2
+    assert r.json()['approved_current_revision'] is False
+    assert r.json()['checks_clear'] is False  # confidence missing => review required
+    assert hit == [('invoice','application/pdf')]
+    assert client.get('/shipments/SHP-24812/documents/invoice/file').status_code == 401
+    fetched = client.get('/shipments/SHP-24812/documents/invoice/file', headers=exe)
+    assert fetched.status_code == 200 and fetched.content.startswith(b'%PDF-')
+    assert client.post(route,files=pdf,headers=exe).status_code == 409
+    history = client.get('/shipments/SHP-24812/history',headers=exe).json()
+    assert any(a['action'] == 'ai_upload' for a in history['edits_and_confirmations'])
+
+
+def test_upload_failure_never_destroys_existing_draft(env, monkeypatch, tmp_path):
+    from clearport import api
+    from clearport.ai_extract import ExtractionFailure
+    client, exe, _ = env
+    monkeypatch.setenv('UPLOADS_DIR', str(tmp_path))
+    def unavailable(kind, data, mime):
+        raise ExtractionFailure('Model temporarily unavailable')
+    monkeypatch.setattr(api, 'extract_document', unavailable)
+    old = client.get('/shipments/SHP-24812',headers=exe).json()
+    response = client.post('/shipments/SHP-24812/documents/invoice/upload?expected_revision=1',
+        files={'file':('invoice.pdf', b'%PDF-1.4 test', 'application/pdf')}, headers=exe)
+    assert response.status_code == 502
+    after = client.get('/shipments/SHP-24812',headers=exe).json()
+    assert after['revision'] == old['revision']
+    assert after['documents']['invoice']['extracted'] == old['documents']['invoice']['extracted']
+    assert not list(tmp_path.iterdir())
+
+
+def test_replacing_approved_document_invalidates_manager_signoff(env, monkeypatch, tmp_path):
+    from clearport import api
+    from clearport.ai_extract import ExtractionResult
+    client, exe, manager = env
+    monkeypatch.setenv('UPLOADS_DIR', str(tmp_path))
+    assert client.post('/shipments/SHP-24812/approve',headers=manager,
+                       json={'expected_revision':1}).status_code == 200
+    prior = client.get('/shipments/SHP-24812', headers=exe).json()
+    doc = prior['documents']['invoice']['extracted']
+    monkeypatch.setattr(api,'extract_document',lambda kind,data,mime: ExtractionResult(doc, {}, 'extracted'))
+    r = client.post('/shipments/SHP-24812/documents/invoice/upload?expected_revision=1',
+      files={'file':('invoice.pdf',b'%PDF-1.4 sample','application/pdf')},headers=exe)
+    assert r.status_code == 200, r.text
+    assert r.json()['approved_current_revision'] is False
+    assert client.post('/shipments/SHP-24812/export',headers=exe).status_code == 409
+
+
+def test_normalization_unknown_model_confidence_blocks():
+    from clearport.ai_extract import normalize_ai_response
+    draft = normalize_ai_response('bill_of_lading',{'extracted':{
+        'bill_of_lading_number':'BOL-1','container_numbers':['ABCD1234567'],
+        'packages':12,'gross_weight_kg':100},'confidence':{'packages':2.1}})
+    assert draft.confidence['packages'] == 0
+    assert draft.confidence['container_numbers'] == 0
+    assert 'bill_of_lading_number' in draft.confidence

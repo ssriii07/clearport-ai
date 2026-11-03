@@ -6,7 +6,7 @@ not the migration mechanism. SQLAlchemy models here are authoritative.
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from dotenv import load_dotenv
 
@@ -50,6 +50,20 @@ class Document(Base):
     confidence: Mapped[dict] = mapped_column(JSON, default=dict)
     confirmed_fields: Mapped[list] = mapped_column(JSON, default=list)
     shipment: Mapped[Shipment] = relationship(back_populates='documents')
+
+class StoredDocument(Base):
+    """Metadata for private source files; binary bytes are never stored in Git."""
+    __tablename__ = 'stored_documents'
+    __table_args__ = (UniqueConstraint('shipment_id', 'kind', name='uq_stored_document'),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shipment_id: Mapped[str] = mapped_column(ForeignKey('shipments.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    stored_name: Mapped[str] = mapped_column(String(80))
+    original_name: Mapped[str] = mapped_column(String(150))
+    mime_type: Mapped[str] = mapped_column(String(40))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 class FieldAudit(Base):
     __tablename__ = 'field_audits'

@@ -19,6 +19,7 @@ build/
 # Uploaded customer files must NEVER enter the repository
 uploads/
 private_documents/
+private_uploads/
 *.db
 *.sqlite3
 .DS_Store

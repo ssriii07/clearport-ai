@@ -1,27 +1,28 @@
-"""Milestone 02: authenticated, persistent review and approval API.
-
-This API consumes SEEDED, fictional extracted data. File uploads and AI ingestion
-are explicitly scheduled for the next milestone, not faked here.
-"""
+"""Milestone 03: authenticated review, manager approval, guarded export and real AI uploads."""
 import copy
 import csv
 import hashlib
 import io
 import json
 import re
+import uuid
+from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Query
+from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from .auth import current_user, issue_token, manager_only, verify_password
 from .cross_checks import validate_shipment
-from .database import Document, ExportEvent, FieldAudit, ManagerApproval, Shipment, User, get_db
+from .database import Document, ExportEvent, FieldAudit, ManagerApproval, Shipment, User, StoredDocument, get_db
 
-app = FastAPI(title='ClearPort AI - Milestone 02', version='0.2.0', description='Seeded review, approval and CSV export API. AI/upload will arrive in the next milestone.')
+from .ai_extract import ExtractionFailure, extract_document
+from .uploads import MAX_BYTES, file_mime, private_root
+
+app = FastAPI(title='ClearPort AI - Milestone 03', version='0.3.0', description='Real PDF/image Gemini extraction, authenticated review, approval and guarded CSV export.')
 DOC_KINDS = {'invoice', 'packing_list', 'bill_of_lading'}
 TOP_FIELDS = {
     'invoice': {'supplier_name','buyer_name','invoice_number','invoice_date','currency','incoterm','invoice_total','packages','gross_weight_kg','line_items'},
@@ -156,7 +157,7 @@ def revision_guard(db: Session, shipment: Shipment, expected_revision: int):
 
 @app.get('/health')
 def health():
-    return {'status': 'ok', 'milestone': 2, 'ai_ingestion_enabled': False}
+    return {'status': 'ok', 'milestone': 3, 'ai_ingestion_enabled': True}
 
 @app.post('/auth/login')
 def login(body: LoginRequest, db: Session = Depends(get_db)):
@@ -181,6 +182,100 @@ def shipment(shipment_id: str, db: Session = Depends(get_db), user: User = Depen
 def checks(shipment_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     get_shipment(db, shipment_id)
     return check_report(db, shipment_id).to_dict()
+
+@app.post('/shipments/{shipment_id}/documents/{kind}/upload')
+async def upload_document(shipment_id: str, kind: str,
+                          expected_revision: int = Query(ge=1), file: UploadFile = File(...),
+                          db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """Store a SOURCE document and its actual AI draft; a retry never fabricates results."""
+    shipment = get_shipment(db, shipment_id)
+    if kind not in DOC_KINDS:
+        raise HTTPException(400, 'Invalid document kind')
+    if shipment.revision != expected_revision:
+        raise HTTPException(409, 'Shipment changed; refresh before uploading')
+    # The document is read at a fixed cap to prevent arbitrarily large uploads.
+    try:
+        data = await file.read(MAX_BYTES + 1)
+    finally:
+        await file.close()
+    if not data:
+        raise HTTPException(422, 'File is empty')
+    if len(data) > MAX_BYTES:
+        raise HTTPException(413, 'Document exceeds 6 MB limit')
+    mime = file_mime(data)
+    if not mime:
+        raise HTTPException(415, 'Only genuine PDF, PNG and JPEG files are supported')
+    try:
+        draft = extract_document(kind, data, mime)
+    except ExtractionFailure as exc:
+        raise HTTPException(502, str(exc)) from None
+    # Persist the original file privately. It can be downloaded only with authorization.
+    name = str(uuid.uuid4())
+    root = private_root()
+    destination = root / name
+    destination.write_bytes(data)
+    try:
+        destination.chmod(0o600)
+    except OSError:
+        pass
+    old_path = None
+    try:
+        revision_guard(db, shipment, expected_revision)
+        doc = db.scalar(select(Document).where(Document.shipment_id == shipment_id, Document.kind == kind))
+        if doc is None:
+            doc = Document(shipment_id=shipment_id, kind=kind, status=draft.status,
+                           extracted=draft.extracted, confidence=draft.confidence, confirmed_fields=[])
+            db.add(doc)
+        else:
+            doc.status = draft.status
+            doc.extracted = draft.extracted
+            doc.confidence = draft.confidence
+            doc.confirmed_fields = []
+        stored = db.scalar(select(StoredDocument).where(
+            StoredDocument.shipment_id == shipment_id, StoredDocument.kind == kind))
+        if stored:
+            old_path = stored.stored_name
+        else:
+            stored = StoredDocument(shipment_id=shipment_id, kind=kind)
+            db.add(stored)
+        stored.stored_name = name
+        stored.original_name = Path(file.filename or 'upload').name[:150]
+        stored.mime_type = mime
+        stored.sha256 = hashlib.sha256(data).hexdigest()
+        stored.size_bytes = len(data)
+        db.add(FieldAudit(shipment_id=shipment_id, document_kind=kind, field_path='*',
+                          action='ai_upload', old_value=None,
+                          new_value=json.dumps({'sha256': stored.sha256, 'mime_type': mime}),
+                          reason='Authenticated document upload; Gemini draft extraction', user_id=user.id))
+        db.commit()
+    except Exception:
+        db.rollback()
+        destination.unlink(missing_ok=True)
+        raise
+    if old_path:
+        # Old file names originate exclusively from server-generated UUIDs.
+        (root / old_path).unlink(missing_ok=True)
+    return serialize_shipment(db, shipment, detailed=True)
+
+
+@app.get('/shipments/{shipment_id}/documents/{kind}/file')
+def view_original(shipment_id: str, kind: str, db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    get_shipment(db, shipment_id)
+    if kind not in DOC_KINDS:
+        raise HTTPException(400, 'Invalid document kind')
+    stored = db.scalar(select(StoredDocument).where(
+        StoredDocument.shipment_id == shipment_id, StoredDocument.kind == kind))
+    if stored is None:
+        raise HTTPException(404, 'No uploaded source file for this document')
+    root = private_root()
+    target = (root / stored.stored_name).resolve()
+    if target.parent != root or not target.is_file():
+        raise HTTPException(404, 'Source file unavailable')
+    return FileResponse(target, media_type=stored.mime_type, filename=stored.original_name,
+                        content_disposition_type='inline',
+                        headers={'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'})
+
 
 @app.patch('/shipments/{shipment_id}/documents/{kind}/field')
 def edit_field(shipment_id: str, kind: str, body: EditRequest,

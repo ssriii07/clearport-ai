@@ -50,3 +50,7 @@
 - [ ] Prepare to explain the decisions and numbers in the interview.
 
 **Isocode scoring:** quality 50%, problem solving 30%, communication 20%.
+
+
+## Milestone 3 status
+Real server-side Gemini document extraction and private authenticated source-file upload/retrieval are implemented for PDF/PNG/JPEG. Source scans, error paths and uncertainty must still be reviewed manually. A polished web frontend, full three-document integration demo, cloud deployment, India data residency, private encrypted production storage and page-level highlighting remain pending.

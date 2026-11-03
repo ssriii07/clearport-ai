@@ -1,5 +1,53 @@
 # ClearPort AI — Isocode Customs Take-Home
 
+**Milestone 03: real Gemini invoice/packing-list/bill-of-lading upload (backend only).** The final UI and production deployment are NOT finished.
+
+## M3 update (apply to existing Git project, do NOT unzip as a new repository)
+
+Stop your existing backend server with `Control+C` in its Terminal window, then from a fresh Terminal:
+
+```bash
+cd ~/Downloads/clearport-ai
+unzip -o ~/Downloads/clearport-ai-milestone-03-update.zip -d ~/Downloads/clearport-ai
+cd backend
+source ../.venv/bin/activate
+python -m pip install -r requirements.txt
+python -m clearport.seed_db
+python -m pytest -q
+```
+
+Expected: **35 passed**. `seed_db` is safe to rerun and adds the new source-file metadata table without overwriting existing sample shipments, corrections or manager approvals. The existing SQLite DB is preserved.
+
+To test REAL AI upload, first stop the server if running, then in the *same Terminal where you will start the server* enter:
+
+```bash
+read -s "GEMINI_API_KEY?Paste your Gemini API key: "; echo; export GEMINI_API_KEY
+python -m uvicorn clearport.api:app --reload
+```
+
+For Mac zsh, `read -s` hides your key. Never paste an API key into Swagger request JSON or screenshots, GitHub or chat. For first use, choose **fictional PDFs only**; Gemini free-tier data handling does not meet the client confidentiality requirement.
+
+Open `http://127.0.0.1:8000/docs`, login as the demo executive and authorize. Use:
+
+- `POST /shipments/{shipment_id}/documents/{kind}/upload` with `shipment_id=SHP-24811`, `kind=invoice`, `expected_revision=1` *if the record still has revision 1* and the fictional PDF downloaded previously. The endpoint checks the current revision, so always use the current `revision` from `GET /shipments/{shipment_id}`.
+- If Gemini succeeds, the endpoint returns the updated shipment with extracted draft values and AI-estimated per-field confidence. If the API call fails, existing values are left unchanged and the endpoint returns an error; the model output is never faked.
+- `GET /shipments/{shipment_id}/documents/{kind}/file` returns the original privately stored document only to a signed-in user.
+- `GET /shipments/{shipment_id}/checks` highlights missing, uncertain and inconsistent fields. **Never export until checks clear and a manager approves the latest revision.**
+
+Only source files up to 6 MB with a PDF/PNG/JPEG magic signature are allowed. Private document bytes are stored under `backend/private_uploads/` (ignored by Git). The code stores a SHA-256 file fingerprint and upload event; never upload real client data to this free-tier demo. Source access is not yet separately logged, and extraction lacks source-page highlights or an unreadable-to-manual-ready transition. Those remain outstanding.
+
+### Model / privacy / engineering assumptions
+
+- The account has already successfully invoked **Gemini 2.5 Flash** from Python for a fictional invoice. Default model: `gemini-2.5-flash` (override with `GEMINI_MODEL`).
+- Gemini supplies *self-assessed* confidence, not statistically calibrated accuracy. If a returned field has no valid confidence score, the backend records `0.0`, requiring human confirmation.
+- PDF/images are sent to Gemini through `google-genai` with the in-memory SDK bytes API; no OCR stub or hard-coded extraction is used for live requests.
+- `UPLOADS_DIR` is configurable and must become private encrypted storage with controlled retention and audit access logs before actual client use. India-region hosting and an appropriately contracted non-training data processor are production requirements, not claimed as implemented.
+- For a real customs filing export, the client needs to supply its exact software column layout. This milestone retains the documented *assumed* CSV structure.
+
+---
+
+# ClearPort AI — Isocode Customs Take-Home
+
 **Milestone 02: authenticated, persistent backend workflow (not the finished application).** Deadline: **9 Nov 2026, 11:59 PM IST**.
 
 The live AI invoice extractor you already tested in `isocode-customs-api-test` is a separate proof of concept. **This milestone intentionally uses real database-backed synthetic extraction records, not a pretend AI integration.** Secure document upload + server-side Gemini ingestion comes next.

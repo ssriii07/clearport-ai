@@ -18,3 +18,11 @@ Do not present these as client-provided requirements. Add every unsupported choi
 - **A-014:** Demo executive and manager accounts are fictional with documented example passwords; production requires secure credential provisioning, rate limits and stronger account lifecycle controls.
 - **A-015:** Human confirmation suppresses a *review alert* for that field while retaining the original model confidence and writing an audit record. Field edits require a reason and invalidate a prior manager approval.
 - **A-016:** CSV uses assumed columns because no filing-software-specific import template was provided; spreadsheet formula escaping is applied to untrusted text fields.
+
+
+## Milestone 3 explicit assumptions
+- **ASSUMPTION M3-1:** Individual uploaded files are limited to 6 MiB and PDF/PNG/JPEG in this demo; the client did not specify a file size limit.
+- **ASSUMPTION M3-2:** Per-field confidence scores are self-reported by Gemini and treated as *uncalibrated hints*. Missing/invalid scores are forced to 0 and require manual confirmation.
+- **ASSUMPTION M3-3:** Local source files are private and ignored by Git, but production will need India-hosted encrypted object storage, deletion and access audit. This is not claimed as implemented.
+- **ASSUMPTION M3-4:** Uploading a source replaces the prior draft for that document and always invalidates manager approval by incrementing the shipment revision.
+- **ASSUMPTION M3-5:** The client has not provided the proprietary Excel import layout; current CSV columns are fictional prototype columns.

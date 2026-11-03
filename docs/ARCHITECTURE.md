@@ -29,3 +29,9 @@ Private storage holds PDFs/images. Server accepts validated uploads and calls Ge
 ## Known security/engineering follow-ups
 
 Avoid real importer data in free-tier AI tests; use paid provider with verified no-training / India-region contract for production. Audit all document reads; private object storage; limit sizes/types; inspect PDF content; handle prompt injection, provider errors, stale approvals, malformed values, race conditions and CSV formula injection. Database row locks and migration tooling are needed before a real multi-user production launch.
+
+
+## Milestone 3 additions (2026-11-03)
+The API accepts authenticated 6 MB PDF/PNG/JPEG uploads, invokes Gemini 2.5 Flash for genuine draft extraction, normalizes fields, records self-estimated confidence per field, saves source bytes outside Git, and increments the shipment revision. The source-file metadata table is added with `Base.metadata.create_all`; the existing local database is preserved. Uploaded source files are accessible only through an authenticated download route. Failed extraction does not replace earlier reviewed data. Old approval is invalidated automatically by the revision change.
+
+Known remaining gaps: production encrypted India storage, read-access audit, queued asynchronous extraction, manual-ready transition for unreadable scans, page-level provenance and frontend document viewer. Source files must remain fictional on the free Gemini tier.
