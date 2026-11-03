@@ -23,3 +23,6 @@ private_uploads/
 *.db
 *.sqlite3
 .DS_Store
+
+# TypeScript build cache
+*.tsbuildinfo
