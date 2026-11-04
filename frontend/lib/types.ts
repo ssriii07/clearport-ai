@@ -3,7 +3,7 @@ export type Kind = 'invoice' | 'packing_list' | 'bill_of_lading';
 export const KINDS: Kind[] = ['invoice','packing_list','bill_of_lading'];
 export const KIND_NAMES: Record<Kind,string> = { invoice:'Commercial invoice', packing_list:'Packing list', bill_of_lading:'Bill of lading' };
 export type Issue = {code:string; message:string; locations:string[]; details:Record<string,unknown>; severity:string};
-export type DocumentDraft = {status:string; extracted:Record<string,unknown>; confidence:Record<string,number>; confirmed_fields:string[]};
+export type DocumentDraft = {status:string; extracted:Record<string,unknown>; confidence:Record<string,number>; confirmed_fields:string[]; source_available?:boolean};
 export type Shipment = {
   shipment_id:string; importer_name:string; revision:number; status:string; checks_clear:boolean;
   approved_current_revision:boolean; export_allowed:boolean;

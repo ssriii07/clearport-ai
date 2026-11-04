@@ -69,7 +69,8 @@ def document_of(db: Session, shipment_id: str, kind: str) -> Document:
 
 def check_report(db: Session, shipment_id: str):
     docs = db.scalars(select(Document).where(Document.shipment_id == shipment_id)).all()
-    payload = {'shipment_id': shipment_id, 'documents': {d.kind: {
+    shipment = get_shipment(db, shipment_id)
+    payload = {'shipment_id': shipment_id, 'importer_name': shipment.importer_name, 'documents': {d.kind: {
         'status': d.status, 'extracted': d.extracted,
         'confidence': d.confidence, 'confirmed_fields': d.confirmed_fields
     } for d in docs}}
@@ -92,9 +93,13 @@ def serialize_shipment(db: Session, obj: Shipment, detailed=False) -> dict:
               'export_allowed': report.checks_clear and approved_current_revision(db, obj)}
     if detailed:
         result['validation'] = report.to_dict()
+        stored = {source.kind: source for source in db.scalars(
+            select(StoredDocument).where(StoredDocument.shipment_id == obj.id))}
+        root = private_root()
         result['documents'] = {d.kind: {
             'status': d.status, 'extracted': d.extracted,
             'confidence': d.confidence, 'confirmed_fields': d.confirmed_fields,
+            'source_available': d.kind in stored and (root / stored[d.kind].stored_name).is_file(),
         } for d in db.scalars(select(Document).where(Document.shipment_id == obj.id))}
     return result
 
@@ -272,6 +277,13 @@ def view_original(shipment_id: str, kind: str, db: Session = Depends(get_db),
     target = (root / stored.stored_name).resolve()
     if target.parent != root or not target.is_file():
         raise HTTPException(404, 'Source file unavailable')
+    # Document access is sensitive even in the fictional prototype. Audit reads
+    # without modifying the reviewed shipment revision or manager approval.
+    db.add(FieldAudit(shipment_id=shipment_id, document_kind=kind, field_path='*',
+                      action='source_view', old_value=None,
+                      new_value=json.dumps({'sha256': stored.sha256}),
+                      reason='Authenticated access to original document', user_id=user.id))
+    db.commit()
     return FileResponse(target, media_type=stored.mime_type, filename=stored.original_name,
                         content_disposition_type='inline',
                         headers={'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'})
@@ -304,6 +316,13 @@ def confirm_field(shipment_id: str, kind: str, body: ConfirmRequest,
     shipment = get_shipment(db, shipment_id)
     doc = document_of(db, shipment_id, kind)
     parts = parse_path(kind, body.field_path)
+    # A seeded extraction record is NOT a source document. Never claim a field
+    # was verified against an unavailable original.
+    source = db.scalar(select(StoredDocument).where(
+        StoredDocument.shipment_id == shipment_id, StoredDocument.kind == kind))
+    root = private_root()
+    if not source or not (root / source.stored_name).is_file():
+        raise HTTPException(409, 'Upload the original document before confirming fields from source')
     val = read_field(doc.extracted, parts)
     if val is None or val == '' or val == []:
         raise HTTPException(422, 'Missing field cannot be confirmed. Enter a value first.')

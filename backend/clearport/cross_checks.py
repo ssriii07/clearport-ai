@@ -7,6 +7,7 @@ CURRENT reviewed revision (approval enforcement belongs in the API layer).
 
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any
 
 REQUIRED_DOCUMENTS = ("invoice", "packing_list", "bill_of_lading")
@@ -63,6 +64,14 @@ def _meaningful(value: Any) -> bool:
     return True
 
 
+def _comparable_party(value: Any) -> str:
+    """Avoid false positives from harmless capitalization and punctuation changes.
+
+    Names that still differ are sent to humans: never silently rewrite parties.
+    """
+    return re.sub(r'[^a-z0-9]', '', str(value or '').casefold())
+
+
 def validate_shipment(shipment: dict[str, Any], *, confidence_threshold: str = "0.85") -> Report:
     """Expects `{shipment_id, documents: {kind: {status, extracted, confidence}}}`.
 
@@ -117,6 +126,15 @@ def validate_shipment(shipment: dict[str, Any], *, confidence_threshold: str = "
 
     invoice = valid_docs.get("invoice")
     if invoice is not None:
+        importer_name = shipment.get('importer_name')
+        buyer_name = invoice.get('buyer_name')
+        if (_meaningful(importer_name) and _meaningful(buyer_name) and
+                _comparable_party(importer_name) != _comparable_party(buyer_name)):
+            issues.append(Issue(
+                'BUYER_IMPORTER_MISMATCH',
+                'Invoice buyer differs from the shipment importer; verify the correct party.',
+                ('invoice.buyer_name',),
+                {'invoice_buyer': str(buyer_name), 'shipment_importer': str(importer_name)}))
         for key in REQUIRED_INVOICE_FIELDS:
             if not _meaningful(invoice.get(key)):
                 issues.append(Issue("MISSING_FIELD", f"Invoice is missing {key}.", (f"invoice.{key}",)))
@@ -156,6 +174,18 @@ def validate_shipment(shipment: dict[str, Any], *, confidence_threshold: str = "
                 issues.append(Issue("INVOICE_TOTAL_MISMATCH", "Invoice total differs from summed line totals.",
                                     ("invoice.invoice_total", "invoice.line_items"),
                                     {"calculated": str(line_sum), "stated": str(invoice_total)}))
+
+    packing = valid_docs.get("packing_list")
+    if packing is not None and invoice is not None:
+        pack_invoice = packing.get('invoice_number')
+        inv_number = invoice.get('invoice_number')
+        if (_meaningful(pack_invoice) and _meaningful(inv_number) and
+                str(pack_invoice).strip().casefold() != str(inv_number).strip().casefold()):
+            issues.append(Issue(
+                'INVOICE_REFERENCE_MISMATCH',
+                'Packing-list invoice reference differs from the commercial invoice.',
+                ('packing_list.invoice_number', 'invoice.invoice_number'),
+                {'packing_list': str(pack_invoice), 'invoice': str(inv_number)}))
 
     bol = valid_docs.get("bill_of_lading")
     if bol is not None:

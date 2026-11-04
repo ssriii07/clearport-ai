@@ -68,22 +68,33 @@ def test_cannot_approve_wrong_or_unreviewed(env):
     assert client.post('/shipments/SHP-24811/approve', headers=manager, json={'expected_revision':1}).status_code == 409
     assert client.post('/shipments/SHP-24812/export', headers=exe).status_code == 409
 
-def test_full_workflow_low_confidence_fix_approve_export(env):
+def test_full_workflow_low_confidence_fix_approve_export(env, monkeypatch, tmp_path):
+    from clearport import api
+    from clearport.ai_extract import ExtractionResult
     client, exe, manager = env
     sid = 'SHP-24811'
+    monkeypatch.setenv('UPLOADS_DIR', str(tmp_path))
+    existing = client.get(f'/shipments/{sid}', headers=exe).json()['documents']['bill_of_lading']
+    monkeypatch.setattr(api, 'extract_document', lambda *args: ExtractionResult(
+        existing['extracted'], existing['confidence'], 'extracted'))
+    # Source-backed review: a seeded extraction alone is not valid source evidence.
+    upload = client.post(f'/shipments/{sid}/documents/bill_of_lading/upload?expected_revision=1',
+        files={'file': ('bol.pdf', b'%PDF-1.4 pretend fictional document', 'application/pdf')}, headers=exe)
+    assert upload.status_code == 200, upload.text
+    assert upload.json()['documents']['bill_of_lading']['source_available'] is True
     r = client.post(f'/shipments/{sid}/documents/bill_of_lading/confirm', headers=exe,
-        json={'field_path':'container_numbers','expected_revision':1})
+        json={'field_path':'container_numbers','expected_revision':2})
     assert r.status_code == 200, r.text
-    assert r.json()['revision'] == 2
+    assert r.json()['revision'] == 3
     assert 'LOW_CONFIDENCE' not in {i['code'] for i in r.json()['validation']['issues']}
     r = client.patch(f'/shipments/{sid}/documents/packing_list/field', headers=exe, json={
         'field_path':'gross_weight_kg','value':3120,
-        'reason':'Verified original packing list', 'expected_revision':2})
+        'reason':'Manual correction to reconcile fictional packing-list sample', 'expected_revision':3})
     assert r.status_code == 200, r.text
-    assert r.json()['revision'] == 3
+    assert r.json()['revision'] == 4
     assert r.json()['checks_clear'] is True
     assert r.json()['export_allowed'] is False
-    r = client.post(f'/shipments/{sid}/approve', headers=manager, json={'expected_revision':3, 'comment':'Reviewed documents and corrections'})
+    r = client.post(f'/shipments/{sid}/approve', headers=manager, json={'expected_revision':4, 'comment':'Reviewed documents and corrections'})
     assert r.status_code == 200, r.text
     assert r.json()['export_allowed'] is True
     r = client.post(f'/shipments/{sid}/export', headers=exe)
@@ -94,7 +105,7 @@ def test_full_workflow_low_confidence_fix_approve_export(env):
     assert rows[0]['invoice_total'] == '16320.00'
     assert rows[0]['gross_weight_kg'] == '3120'
     hist = client.get(f'/shipments/{sid}/history', headers=manager).json()
-    assert len(hist['edits_and_confirmations']) == 2
+    assert len(hist['edits_and_confirmations']) == 3
     assert len(hist['approvals']) == 1
     assert len(hist['exports']) == 1
 
@@ -236,3 +247,59 @@ def test_normalization_unknown_model_confidence_blocks():
     assert draft.confidence['packages'] == 0
     assert draft.confidence['container_numbers'] == 0
     assert 'bill_of_lading_number' in draft.confidence
+
+
+def test_seeded_records_never_claim_source_verification(env):
+    client, exe, _ = env
+    detail = client.get('/shipments/SHP-24811', headers=exe).json()
+    assert detail['documents']['bill_of_lading']['source_available'] is False
+    response = client.post('/shipments/SHP-24811/documents/bill_of_lading/confirm',
+        headers=exe, json={'field_path': 'container_numbers', 'expected_revision': 1})
+    assert response.status_code == 409
+    assert 'original document' in response.json()['detail'].lower()
+    assert client.get('/shipments/SHP-24811', headers=exe).json()['revision'] == 1
+
+
+def test_uploaded_source_view_is_audited_without_changing_revision(env, monkeypatch, tmp_path):
+    from clearport import api
+    from clearport.ai_extract import ExtractionResult
+    client, exe, _ = env
+    monkeypatch.setenv('UPLOADS_DIR', str(tmp_path))
+    existing = client.get('/shipments/SHP-24811',headers=exe).json()['documents']['bill_of_lading']
+    monkeypatch.setattr(api, 'extract_document', lambda *args: ExtractionResult(
+        existing['extracted'], existing['confidence'], 'extracted'))
+    r = client.post('/shipments/SHP-24811/documents/bill_of_lading/upload?expected_revision=1',
+        files={'file': ('bol.pdf', b'%PDF-1.4 fictional', 'application/pdf')}, headers=exe)
+    assert r.status_code == 200 and r.json()['revision'] == 2
+    assert r.json()['documents']['bill_of_lading']['source_available']
+    source = client.get('/shipments/SHP-24811/documents/bill_of_lading/file', headers=exe)
+    assert source.status_code == 200
+    detail = client.get('/shipments/SHP-24811', headers=exe).json()
+    assert detail['revision'] == 2
+    audit = client.get('/shipments/SHP-24811/history', headers=exe).json()['edits_and_confirmations']
+    assert [a['action'] for a in audit] == ['ai_upload','source_view']
+    r = client.post('/shipments/SHP-24811/documents/bill_of_lading/confirm', headers=exe,
+        json={'field_path': 'container_numbers', 'expected_revision': 2})
+    assert r.status_code == 200
+    assert r.json()['revision'] == 3
+
+
+def test_invoice_buyer_mismatch_blocks_export_and_approval(env):
+    client, exe, manager = env
+    r = client.patch('/shipments/SHP-24812/documents/invoice/field', headers=exe,
+        json={'field_path':'buyer_name', 'value':'Different Fictional Buyer Ltd',
+              'reason':'Testing buyer-importer mismatch control', 'expected_revision':1})
+    assert r.status_code == 200
+    assert 'BUYER_IMPORTER_MISMATCH' in {x['code'] for x in r.json()['validation']['issues']}
+    assert r.json()['checks_clear'] is False
+    assert client.post('/shipments/SHP-24812/approve', headers=manager,
+        json={'expected_revision':2}).status_code == 409
+
+
+def test_packing_invoice_reference_mismatch_detected(env):
+    client, exe, _ = env
+    r = client.patch('/shipments/SHP-24812/documents/packing_list/field', headers=exe,
+        json={'field_path':'invoice_number', 'value':'INV-SOME-OTHER',
+              'reason':'Testing invoice reference comparison', 'expected_revision':1})
+    assert r.status_code == 200
+    assert 'INVOICE_REFERENCE_MISMATCH' in {x['code'] for x in r.json()['validation']['issues']}
