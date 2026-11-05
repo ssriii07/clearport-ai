@@ -24,7 +24,7 @@ async function proxy(request:NextRequest,params:Promise<{path:string[]}>){
     const upstream=await fetch(url,{method,headers,body,cache:'no-store',signal:AbortSignal.timeout(90000)});
     const bytes=await upstream.arrayBuffer();
     const responseHeaders=new Headers({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
-    for(const h of ['content-type','content-disposition']){
+    for(const h of ['content-type','content-disposition','x-evidence-found','x-evidence-page','x-page-count','x-page-number']){
       const v=upstream.headers.get(h);if(v)responseHeaders.set(h,v);
     }
     return new NextResponse(bytes,{status:upstream.status,headers:responseHeaders});

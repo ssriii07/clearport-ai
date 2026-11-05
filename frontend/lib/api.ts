@@ -19,5 +19,6 @@ export function niceText(value:unknown):string {
   return String(value);
 }
 export function fieldLabel(s:string):string {
-  return s.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  const label=s.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  return label.replace(/Hsn Code/gi,'HSN code').replace(/Gross Weight Kg/gi,'Gross weight (kg)');
 }

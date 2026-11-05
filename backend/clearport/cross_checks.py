@@ -104,7 +104,7 @@ def validate_shipment(shipment: dict[str, Any], *, confidence_threshold: str = "
         status = raw.get("status")
         if status == "unreadable":
             issues.append(Issue("UNREADABLE_DOCUMENT", f"{kind} is unreadable; use manual entry or replace the scan.", (kind,)))
-        elif status != "extracted":
+        elif status not in ('extracted', 'manual_verified'):
             issues.append(Issue("DOCUMENT_NOT_READY", f"{kind} is not ready for review (status: {status}).", (kind,)))
         confidence = raw.get("confidence", {})
         confirmed = raw.get("confirmed_fields", [])

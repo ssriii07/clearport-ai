@@ -1,16 +1,19 @@
 'use client';
 import Link from 'next/link';
-import { usePathname,useRouter } from 'next/navigation';
-import { useEffect,useState } from 'react';
+import {usePathname,useRouter} from 'next/navigation';
+import {useEffect,useState} from 'react';
 import {Icon} from '@/components/Icon';
+import {FooterCurves} from '@/components/Illustrations';
 import {api} from '@/lib/api';
 import type {Role} from '@/lib/types';
 export default function Shell({children}:{children:React.ReactNode}){
-  const path=usePathname(),router=useRouter();
-  const [user,setUser]=useState<{email:string;role:Role}|null>(null);
-  const [menu,setMenu]=useState(false);
-  useEffect(()=>{api<{email:string;role:Role}>('/auth/me').then(setUser).catch(()=>{});},[]);
-  useEffect(()=>setMenu(false),[path]);
-  async function logout(){await fetch('/api/logout',{method:'POST'});router.replace('/login');router.refresh()}
-  return <div className="shell"><button type="button" className="mobile-menu" onClick={()=>setMenu(!menu)} aria-label="Toggle sidebar"><Icon name={menu?'close':'menu'} size={23}/></button><aside className={`sidebar ${menu?'show':''}`}><Link href="/shipments" className="brand"><span className="brandmark"><Icon name="layers" size={22}/></span><span>ClearPort <b>AI</b><small>OPERATIONS PLATFORM</small></span></Link><div className="nav-label">WORKSPACE</div><nav className="sidenav"><Link href="/shipments" className={path.startsWith('/shipments')?'active':''}><Icon name="grid" size={19}/> Shipments <Icon name="chevron" size={15}/></Link></nav><div className="sidebar-foot"><div className="sidebar-note"><Icon name="shield" size={18}/><div><strong>Review-first workflow</strong><span>No unchecked export</span></div></div><div className="user-block"><div className="avatar">{user?.email.slice(0,1).toUpperCase()||'U'}</div><div className="user-info"><strong>{user?.role==='manager'?'Documentation manager':'Documentation executive'}</strong><span>{user?.email||'Checking session…'}</span></div><button type="button" title="Sign out" onClick={()=>void logout()} aria-label="Sign out"><Icon name="logout" size={18}/></button></div></div></aside><main className="main"><header className="topbar"><div><span className="top-indicator"/> SECURE DOCUMENT WORKSPACE</div><span className="topbar-right">FICTIONAL DATA <span className="top-separator"/> {user?.role==='manager'?'MANAGER':'EXECUTIVE'}</span></header><div className="content">{children}</div><footer className="footer">ClearPort AI · Isocode technical assessment · All importer data is fictional</footer></main></div>;
+ const path=usePathname(),router=useRouter();const [user,setUser]=useState<{email:string;role:Role}|null>(null);const[open,setOpen]=useState(false);
+ useEffect(()=>{api<{email:string;role:Role}>('/auth/me').then(setUser).catch(()=>{});},[]);useEffect(()=>setOpen(false),[path]);
+ const current=path.match(/^\/shipments\/(SHP-[A-Za-z0-9-]+)/)?.[1];
+ async function logout(){await fetch('/api/logout',{method:'POST'});router.replace('/login');router.refresh()}
+ return <div className="mt-shell"><header className="mt-header"><Link className="mt-header-brand" href="/shipments"><span className="mt-logo" aria-hidden="true"><span/><span/><span/></span><strong>ClearPort AI</strong></Link>
+ <button className="mt-menu-toggle" type="button" aria-label={open?'Close navigation':'Open navigation'} aria-expanded={open} onClick={()=>setOpen(!open)}><Icon name={open?'close':'menu'} size={21}/></button>
+ <nav aria-label="Main navigation" className={`mt-nav ${open?'mt-open':''}`} onClick={e=>{if((e.target as HTMLElement).closest('a'))setOpen(false)}}><Link className={path==='/shipments'?'active':''} href="/shipments">Shipments</Link><Link className="mt-mobile-nav-only" href="/shipments/new">New shipment</Link>{current&&<><Link href={`/shipments/${current}`} className={`mt-mobile-nav-only ${path===`/shipments/${current}`?'active':''}`}>Overview</Link><Link href={`/shipments/${current}/upload`} className={`mt-mobile-nav-only ${path.endsWith('/upload')?'active':''}`}>Uploads</Link><Link href={`/shipments/${current}/review`} className={`mt-mobile-nav-only ${path.endsWith('/review')?'active':''}`}>Review</Link><Link href={`/shipments/${current}/checks`} className={`mt-mobile-nav-only ${path.endsWith('/checks')?'active':''}`}>Checks</Link><Link href={`/shipments/${current}/history`} className={`mt-mobile-nav-only ${path.endsWith('/history')?'active':''}`}>History</Link><Link href={`/shipments/${current}/export`} className={`mt-mobile-nav-only ${path.endsWith('/export')?'active':''}`}>Approval & export</Link></>}</nav>
+ <div className="mt-user"><span className="mt-demo-flag" title="This workspace uses fictional sample data">Demo</span><span className="mt-user-bubble" aria-hidden="true">{user?.email.slice(0,1).toUpperCase()||'C'}</span><span className="mt-user-role">{user?.role==='manager'?'Manager':'Executive'}</span><button type="button" title="Sign out" aria-label="Sign out" onClick={()=>void logout()}><Icon name="logout" size={17}/></button></div></header>
+ <div className="mt-main"><div className="mt-content">{children}</div><FooterCurves/></div></div>;
 }

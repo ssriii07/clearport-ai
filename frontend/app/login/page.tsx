@@ -1,16 +1,14 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Icon } from '@/components/Icon';
+import {useState} from 'react';
+import {useRouter} from 'next/navigation';
+import {Icon} from '@/components/Icon';
+import {FooterCurves,PaperworkLineArt} from '@/components/Illustrations';
 export default function Login(){
-  const router=useRouter();
-  const [email,setEmail]=useState('executive@clearport.demo');const [password,setPassword]=useState('DemoExec#2026');
-  const [busy,setBusy]=useState(false);const [error,setError]=useState('');
-  async function submit(e:React.FormEvent){
-    e.preventDefault();setBusy(true);setError('');
-    try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-      const data=await r.json();if(!r.ok)throw new Error(data.detail||'Sign in failed');router.replace('/shipments');router.refresh();
-    }catch(e){setError(e instanceof Error?e.message:'Unable to sign in');}finally{setBusy(false);}
-  }
-  return <div className="login-wrap"><div className="login-brand"><span className="logo-big"><Icon name="layers" size={29}/></span><span className="eyebrow light">CUSTOMS OPERATIONS, REIMAGINED</span><h1>Clarity in every<br/>shipment.</h1><p>Read the documents. Catch the mismatch. Review with confidence.</p><div className="login-foot">CLEARPORT AI <span>·</span> DOCUMENT INTELLIGENCE</div></div><div className="login-panel"><div className="login-card"><div className="tag">SECURE WORKSPACE</div><h2>Welcome back</h2><p className="muted">Sign in to continue reviewing your shipments.</p><form onSubmit={submit} className="form-stack"><label>Email address<input value={email} onChange={e=>setEmail(e.target.value)} type="email" required autoComplete="username"/></label><label>Password<input value={password} onChange={e=>setPassword(e.target.value)} type="password" required autoComplete="current-password"/></label>{error&&<p className="notice error" role="alert">{error}</p>}<button className="btn primary large" disabled={busy} type="submit">{busy?'Signing in…':'Sign in to workspace'} <Icon name="arrow-right" size={17}/></button></form><div className="demo-hint"><strong>Reviewer demo accounts</strong><button type="button" onClick={()=>{setEmail('executive@clearport.demo');setPassword('DemoExec#2026');}}>Use executive</button><button type="button" onClick={()=>{setEmail('manager@clearport.demo');setPassword('DemoManager#2026');}}>Use manager</button></div><p className="small muted">Fictional demonstration data only. Do not upload client documents to the free AI tier.</p></div></div></div>
+ const router=useRouter();const[email,setEmail]=useState('executive@clearport.demo'),[password,setPassword]=useState('DemoExec#2026');
+ const[busy,setBusy]=useState(false),[error,setError]=useState(''),[reveal,setReveal]=useState(false);
+ async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});const d=await r.json();if(!r.ok)throw new Error(d.detail||'Sign-in failed. Check your credentials and try again.');router.replace('/shipments');router.refresh()}catch(e){setError(e instanceof Error?e.message:'Unable to sign in. Try again.')}finally{setBusy(false)}}
+ return <main className="mt-login"><header className="mt-login-brand"><span className="mt-logo" aria-hidden="true"><span/><span/><span/></span><strong>ClearPort AI</strong></header><div className="mt-login-layout">
+  <section className="mt-login-intro"><PaperworkLineArt className="mt-login-art"/><h1>Three documents.<br/>One source of truth.</h1><p>AI-powered extraction and cross-checks for faster, safer customs documentation.</p></section>
+  <section className="mt-login-box"><div className="mt-login-form"><h2>Sign in to ClearPort AI</h2><p>Continue to your customs workspace.</p><form onSubmit={submit}><label htmlFor="login-email">Email</label><input id="login-email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" required/><label htmlFor="login-password">Password</label><div className="mt-password"><input id="login-password" type={reveal?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/><button type="button" aria-label={reveal?'Hide password':'Show password'} onClick={()=>setReveal(!reveal)}><Icon name="eye" size={18}/></button></div>{error&&<p className="notice error" role="alert">{error}</p>}<button className="btn primary large mt-login-submit" type="submit" disabled={busy}>{busy?'Signing in…':'Sign in'} <Icon name="arrow-right" size={17}/></button></form><div className="mt-demo"><span>Fictional demo access:</span><button type="button" onClick={()=>{setEmail('executive@clearport.demo');setPassword('DemoExec#2026')}}>Executive</button><button type="button" onClick={()=>{setEmail('manager@clearport.demo');setPassword('DemoManager#2026')}}>Manager</button></div><small>Use fictional documents only. No real client data in this demonstration.</small></div></section>
+ </div><FooterCurves/></main>
 }
